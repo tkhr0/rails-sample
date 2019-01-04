@@ -1,0 +1,102 @@
+version: '3'
+
+services:
+  app:
+    # build:
+    #   context: .
+    #   dockerfile: ./.docker/containers/app/Dockerfile
+    image: gcr.io/banana-ci/ryugaku-kuraveil-rails:pr-1719-84ea485
+    ports:
+        - '3000:3000'  # http
+        - '3035:3035'  # webpack-dev-server
+    working_dir: /myapp
+    environment:
+      - DB_HOST=db
+      - DB_USER=root
+      - REDIS_HOST=kvs
+    volumes:
+      # - .:/myapp
+      # - node_modules:/myapp/node_modules:cached
+      # - bundle:/usr/local/bundle:cached
+      - sockets:/myapp/tmp/sockets
+    depends_on:
+      - db
+      - kvs
+      - sidekiq
+    tty: true
+    stdin_open: true
+
+  db:
+    image: mysql:5.6.39
+    ports:
+      - '3306:3306'
+    environment:
+      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - .docker/containers/db/my.cnf:/etc/mysql/my.cnf
+      - sockets:/var/run/mysqld
+      - data:/var/lib/mysql
+
+  kvs:
+    image: redis:3.2
+    ports:
+      - '6379:6379'
+    volumes:
+      - data:/data
+
+  sidekiq:
+    build:
+      context: .
+      dockerfile: ./.docker/containers/app/Dockerfile
+    ports:
+        - '587:587'
+    working_dir: /myapp
+    environment:
+      - REDIS_HOST=kvs
+      - DB_HOST=db
+      - DB_USER=root
+    command: sh -c "yarn install && bundle exec sidekiq -C config/sidekiq.yml"
+    volumes:
+      - .:/myapp
+      - bundle:/usr/local/bundle:cached
+      - node_modules:/myapp/node_modules:cached
+    depends_on:
+      - db
+      - kvs
+
+  # gitbook:
+  #   image: node:8-slim
+  #   working_dir: /myapp
+  #   command: sh -c "yarn install && yarn run gitbook serve"
+  #   ports:
+  #     - '4000:4000'   # for hosting
+  #     - '35729:35729' # for livereload
+  #   volumes:
+  #     # ドキュメントをキャッシュするとファイル監視が動かない
+  #     - ./README.md:/myapp/README.md
+  #     - ./SUMMARY.md:/myapp/SUMMARY.md
+  #     - ./docs:/myapp/docs
+  #     - ./package.json:/myapp/package.json:cached
+  #     - ./yarn.lock:/myapp/yarn.lock:cached
+  #     - node_modules:/myapp/node_modules:cached
+
+  yard:
+    image: ruby:2.4.3
+    working_dir: /myapp
+    ports:
+        - '8808:8808'
+    command: sh -c "bundle exec yard server"
+    volumes:
+      - ./.yardoc:/myapp/.yardoc:cached
+      - ./Gemfile:/myapp/Gemfile:cached
+      - ./Gemfile.lock:/myapp/Gemfile.lock:cached
+      - ./app:/myapp/app/:cached
+      - ./lib/:/myapp/lib/:cached
+      - ./spec/:/myapp/spec/:cached
+      - bundle:/usr/local/bundle:cached
+
+volumes:
+  data:
+  bundle:
+  sockets:
+  node_modules:
